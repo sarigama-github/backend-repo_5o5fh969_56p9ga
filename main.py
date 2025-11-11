@@ -1,8 +1,13 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
+from typing import Any, Dict
 
-app = FastAPI()
+from database import create_document
+from schemas import WaitlistSubscriber
+
+app = FastAPI(title="SaaS Landing Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,7 +38,6 @@ def test_database():
     }
     
     try:
-        # Try to import database module
         from database import db
         
         if db is not None:
@@ -42,7 +46,6 @@ def test_database():
             response["database_name"] = db.name if hasattr(db, 'name') else "✅ Connected"
             response["connection_status"] = "Connected"
             
-            # Try to list collections to verify connectivity
             try:
                 collections = db.list_collection_names()
                 response["collections"] = collections[:10]  # Show first 10 collections
@@ -57,12 +60,25 @@ def test_database():
     except Exception as e:
         response["database"] = f"❌ Error: {str(e)[:50]}"
     
-    # Check environment variables
     import os
     response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
     
     return response
+
+@app.post("/api/waitlist")
+def join_waitlist(payload: Dict[str, Any]):
+    """Join the waitlist. Stores subscriber in MongoDB using the WaitlistSubscriber schema."""
+    try:
+        subscriber = WaitlistSubscriber(**payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+
+    try:
+        inserted_id = create_document("waitlistsubscriber", subscriber)
+        return {"ok": True, "id": inserted_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
